@@ -14,12 +14,13 @@ import takagi.ru.monica.steam.network.SteamProtoReader
 
 internal object SteamGroupChatParser {
     fun parseGroups(payload: ByteArray): List<SteamGroupChatSummary> =
-        SteamProtoReader(payload).parseAll()
+        RustGroupChatSummariesParser.parseOrNull(payload) ?: SteamProtoReader(payload).parseAll()
             .filter { it.number == 1 && it.bytes != null }
             .mapNotNull { parseSummaryPair(it.bytes ?: return@mapNotNull null) }
             .sortedByDescending { group -> group.rooms.maxOfOrNull(SteamGroupChatRoom::lastMessageTimestamp) ?: 0L }
 
     fun parseHistory(payload: ByteArray, groupId: String, chatId: String): SteamGroupChatMessagePage {
+        RustGroupChatHistoryParser.parseOrNull(payload, groupId, chatId)?.let { return it }
         val fields = SteamProtoReader(payload).parseAll()
         val messages = fields.filter { it.number == 1 && it.bytes != null }.mapNotNull { field ->
             val allValues = SteamProtoReader(field.bytes ?: return@mapNotNull null).parseAll()

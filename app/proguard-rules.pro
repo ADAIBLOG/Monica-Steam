@@ -60,6 +60,9 @@
 -keep class com.github.penfeizhou.animation.** { *; }
 -dontwarn com.github.penfeizhou.animation.**
 
+# Rust JNI entry points use stable Java symbols and must not be renamed by R8.
+-keep class takagi.ru.monica.steam.core.RustSteamCoreNative { *; }
+
 # 保留 Parcelable
 -keepclassmembers class * implements android.os.Parcelable {
     public static final ** CREATOR;

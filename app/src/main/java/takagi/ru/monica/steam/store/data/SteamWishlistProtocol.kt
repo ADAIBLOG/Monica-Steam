@@ -39,6 +39,10 @@ internal fun buildSteamWishlistMutationProtoRequest(appId: Int): SteamProtoWrite
     }
 
 internal fun parseSteamWishlistProtoResponse(response: ByteArray): List<SteamWishlistItem> =
+    RustSteamWishlistParser.parseOrNull(response)
+        ?: parseSteamWishlistProtoResponseKotlin(response)
+
+private fun parseSteamWishlistProtoResponseKotlin(response: ByteArray): List<SteamWishlistItem> =
     SteamProtoReader(response).parseAll()
         .asSequence()
         .filter { it.number == 1 && it.bytes != null }

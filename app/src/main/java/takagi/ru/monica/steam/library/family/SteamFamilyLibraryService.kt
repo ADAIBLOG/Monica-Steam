@@ -103,6 +103,7 @@ internal class SteamFamilyLibraryService(
         }
 
         internal fun parseSharedLibraryApps(response: ByteArray): List<SteamGame> {
+            RustFamilySharedAppsParser.parseOrNull(response)?.let { return it }
             return SteamProtoReader(response).parseAll()
                 .asSequence()
                 .filter { it.number == 1 && it.bytes != null }

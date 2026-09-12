@@ -3,7 +3,9 @@ package takagi.ru.monica.steam.network.cm
 import java.io.ByteArrayInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.charset.StandardCharsets
 import java.util.zip.GZIPInputStream
+import takagi.ru.monica.steam.core.RustSteamCoreNative
 import takagi.ru.monica.steam.network.SteamProtoReader
 import takagi.ru.monica.steam.network.SteamProtoWriter
 
@@ -54,6 +56,16 @@ internal object SteamCmProtocol {
         jobIdTarget: Long = JOB_ID_NONE,
         targetJobName: String? = null
     ): ByteArray {
+        RustSteamCoreNative.encodeCmMessageOrNull(
+            eMsg = eMsg,
+            steamId = steamId,
+            sessionId = sessionId,
+            body = body,
+            jobIdSource = jobIdSource,
+            jobIdTarget = jobIdTarget,
+            targetJobName = targetJobName
+        )?.let { return it }
+
         val header = SteamProtoWriter().apply {
             writeFixed64(1, steamId)
             writeVarint(2, sessionId.toLong())
@@ -70,21 +82,93 @@ internal object SteamCmProtocol {
             .array()
     }
 
-    fun webLogonBody(webLogonToken: String): ByteArray = SteamProtoWriter().apply {
-        writeVarint(1, WEB_PROTOCOL_VERSION)
-        writeVarint(7, WEB_CLIENT_OS_TYPE)
-        writeVarint(32, 4L)
-        writeVarint(33, 2L)
-        writeString(80, "anonymous")
-        writeString(103, webLogonToken)
-    }.toByteArray()
+    fun webLogonBody(webLogonToken: String): ByteArray {
+        RustSteamCoreNative.webLogonBodyOrNull(webLogonToken)?.let { return it }
+        return SteamProtoWriter().apply {
+            writeVarint(1, WEB_PROTOCOL_VERSION)
+            writeVarint(7, WEB_CLIENT_OS_TYPE)
+            writeVarint(32, 4L)
+            writeVarint(33, 2L)
+            writeString(80, "anonymous")
+            writeString(103, webLogonToken)
+        }.toByteArray()
+    }
 
-    fun decodeMessages(payload: ByteArray): List<SteamCmEnvelope> =
-        decodeMessages(payload, depth = 0)
+    fun decodeMessages(payload: ByteArray): List<SteamCmEnvelope> {
+        RustSteamCoreNative.decodeCmMessagesOrNull(payload)
+            ?.let(::decodeRustBridge)
+            ?.let { return it }
+        return decodeMessagesKotlin(payload, depth = 0)
+    }
 
-    private fun decodeMessages(payload: ByteArray, depth: Int): List<SteamCmEnvelope> {
+    private fun decodeRustBridge(payload: ByteArray): List<SteamCmEnvelope>? = runCatching {
+        val buffer = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN)
+        require(buffer.remaining() >= 8) { "Rust CM bridge is truncated" }
+        val magic = ByteArray(4).also(buffer::get)
+        require(magic.contentEquals(RUST_BRIDGE_MAGIC)) { "Rust CM bridge version is unsupported" }
+        val count = buffer.int
+        require(count >= 0 && count <= MAX_RUST_BRIDGE_MESSAGES) {
+            "Rust CM bridge message count is invalid"
+        }
+
+        buildList(count) {
+            repeat(count) {
+                require(buffer.remaining() >= RUST_BRIDGE_FIXED_BYTES) {
+                    "Rust CM bridge item is truncated"
+                }
+                val eMsg = buffer.int
+                val steamId = buffer.long
+                val sessionId = buffer.int
+                val jobIdSource = buffer.long
+                val jobIdTarget = buffer.long
+                val eResultRaw = buffer.int
+                val transportErrorRaw = buffer.int
+                val targetJobName = readBridgeString(buffer)
+                val errorMessage = readBridgeString(buffer)
+                require(buffer.remaining() >= 4) { "Rust CM bridge body length is truncated" }
+                val bodyLength = buffer.int
+                require(bodyLength >= 0 && bodyLength <= buffer.remaining()) {
+                    "Rust CM bridge body is invalid"
+                }
+                val body = ByteArray(bodyLength).also(buffer::get)
+                add(
+                    SteamCmEnvelope(
+                        eMsg = eMsg,
+                        header = SteamCmHeader(
+                            steamId = steamId,
+                            sessionId = sessionId,
+                            jobIdSource = jobIdSource,
+                            jobIdTarget = jobIdTarget,
+                            targetJobName = targetJobName,
+                            eResult = eResultRaw.takeUnless { it == Int.MIN_VALUE },
+                            transportError = transportErrorRaw.takeUnless { it == Int.MIN_VALUE },
+                            errorMessage = errorMessage
+                        ),
+                        body = body
+                    )
+                )
+            }
+        }.also {
+            require(!buffer.hasRemaining()) { "Rust CM bridge has trailing bytes" }
+        }
+    }.getOrNull()
+
+    private fun readBridgeString(buffer: ByteBuffer): String? {
+        require(buffer.remaining() >= 4) { "Rust CM bridge string length is truncated" }
+        val length = buffer.int
+        if (length == -1) return null
+        require(length >= 0 && length <= buffer.remaining()) {
+            "Rust CM bridge string is invalid"
+        }
+        return ByteArray(length)
+            .also(buffer::get)
+            .toString(StandardCharsets.UTF_8)
+            .takeIf(String::isNotBlank)
+    }
+
+    private fun decodeMessagesKotlin(payload: ByteArray, depth: Int): List<SteamCmEnvelope> {
         require(depth <= MAX_MULTI_DEPTH) { "Steam CM multi-message nesting is too deep" }
-        val envelope = decodeSingle(payload)
+        val envelope = decodeSingleKotlin(payload)
         if (envelope.eMsg != EMSG_MULTI) return listOf(envelope)
         val fields = SteamProtoReader(envelope.body).parse()
         val compressedSize = fields[1]?.asLong?.coerceAtLeast(0L) ?: 0L
@@ -110,7 +194,7 @@ internal object SteamCmProtocol {
             require(length >= 0 && length <= unpacked.size - offset) {
                 "Steam CM multi-message item is invalid"
             }
-            messages += decodeMessages(
+            messages += decodeMessagesKotlin(
                 unpacked.copyOfRange(offset, offset + length),
                 depth + 1
             )
@@ -119,7 +203,7 @@ internal object SteamCmProtocol {
         return messages
     }
 
-    private fun decodeSingle(payload: ByteArray): SteamCmEnvelope {
+    private fun decodeSingleKotlin(payload: ByteArray): SteamCmEnvelope {
         require(payload.size >= 8) { "Steam CM message is too short" }
         val buffer = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN)
         val rawEMsg = buffer.int
@@ -148,5 +232,8 @@ internal object SteamCmProtocol {
         )
     }
 
+    private val RUST_BRIDGE_MAGIC = byteArrayOf('M'.code.toByte(), 'S'.code.toByte(), 'C'.code.toByte(), '1'.code.toByte())
+    private const val RUST_BRIDGE_FIXED_BYTES = 40
+    private const val MAX_RUST_BRIDGE_MESSAGES = 100_000
     private const val MAX_MULTI_DEPTH = 2
 }

@@ -1,0 +1,15 @@
+[package]
+name = "monica-steam-android"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+name = "monica_steam_android"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jni = { version = "0.21", default-features = false }
+monica-steam-core = { path = "../monica-steam-core" }

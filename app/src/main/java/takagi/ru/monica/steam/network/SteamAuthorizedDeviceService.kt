@@ -31,15 +31,17 @@ class SteamAuthorizedDeviceService(
         val request = SteamProtoWriter().apply {
             writeBool(1, false)
         }
-        val fields = SteamProtoReader(
-            api.callProtobuf(
-                iface = "IAuthenticationService",
-                method = "EnumerateTokens",
-                request = request,
-                accessToken = token
-            )
-        ).parseAll()
+        val response = api.callProtobuf(
+            iface = "IAuthenticationService",
+            method = "EnumerateTokens",
+            request = request,
+            accessToken = token
+        )
+        return RustAuthorizedDeviceParser.parseOrNull(response) ?: parseKotlin(response)
+    }
 
+    private fun parseKotlin(response: ByteArray): List<SteamAuthorizedDevice> {
+        val fields = SteamProtoReader(response).parseAll()
         val requestingToken = fields
             .firstOrNull { it.number == 2 }
             ?.asFixed64UnsignedString
@@ -81,5 +83,4 @@ class SteamAuthorizedDeviceService(
             city = fields[6]?.asString.orEmpty()
         )
     }
-
 }

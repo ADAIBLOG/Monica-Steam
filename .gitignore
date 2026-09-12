@@ -22,6 +22,11 @@
 .cxx
 local.properties
 
+# Rust / generated Android JNI libraries
+/rust/target/
+/app/src/main/jniLibs/arm64-v8a/libmonica_steam_android.so
+/app/src/main/jniLibs/armeabi-v7a/libmonica_steam_android.so
+
 # 签名文件 - 绝对不要提交到 Git!
 keystore/
 *.jks

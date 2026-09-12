@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -251,7 +252,6 @@ internal fun SteamLiquidGlassDock(
                 motionState.value.coerceIn(0f, (tabs.size - 1).toFloat())
             }
         }
-        val indicatorTranslationPx = itemWidthPx * indicatorPosition
         val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
         val runtimeSupported = remember(runtimeEffectsEnabled) {
             runtimeEffectsEnabled && isSteamLiquidGlassRuntimeSupported()
@@ -281,12 +281,6 @@ internal fun SteamLiquidGlassDock(
             isDragging = motionState.isDragging,
             reduceAnimations = reduceAnimations
         )
-        val indicatorScaleProgress = maxOf(dragScaleProgress, motionState.pressProgress)
-        val indicatorTransform = resolveIndicatorTransform(
-            scaleProgress = indicatorScaleProgress,
-            velocityItemsPerSecond = motionState.deformationVelocityItemsPerSecond
-        )
-        val sampledItemScale = lerp(1f, 1.2f, motionState.pressProgress)
         Box(
             modifier = Modifier
                 .padding(bottom = 12.dp)
@@ -341,17 +335,21 @@ internal fun SteamLiquidGlassDock(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 tabs.forEachIndexed { index, tab ->
-                    val coverage = (1f - abs(index.toFloat() - indicatorPosition)).coerceIn(0f, 1f)
+                    val coverage = {
+                        (1f - abs(index.toFloat() - indicatorPosition)).coerceIn(0f, 1f)
+                    }
                     SteamLiquidGlassDockItemVisual(
                         tab = tab,
                         itemWidth = itemWidth,
                         selectedAlpha = coverage,
-                        contentColor = if (runtimeSupported) {
-                            unselectedColor
-                        } else {
-                            lerpColor(unselectedColor, selectedColor, coverage)
+                        contentColor = {
+                            if (runtimeSupported) {
+                                unselectedColor
+                            } else {
+                                lerpColor(unselectedColor, selectedColor, coverage())
+                            }
                         },
-                        scale = 1f
+                        scale = { 1f }
                     )
                 }
             }
@@ -391,9 +389,9 @@ internal fun SteamLiquidGlassDock(
                             SteamLiquidGlassDockItemVisual(
                                 tab = tab,
                                 itemWidth = itemWidth,
-                                selectedAlpha = 1f,
-                                contentColor = Color.White,
-                                scale = sampledItemScale
+                                selectedAlpha = { 1f },
+                                contentColor = { Color.White },
+                                scale = { lerp(1f, 1.2f, motionState.pressProgress) }
                             )
                         }
                     }
@@ -405,7 +403,11 @@ internal fun SteamLiquidGlassDock(
                     modifier = Modifier
                         .padding(horizontal = 4.dp)
                         .graphicsLayer {
-                            translationX = indicatorTranslationPx + panelOffsetPx
+                            translationX = itemWidthPx * indicatorPosition + panelOffsetPx
+                            val indicatorTransform = resolveIndicatorTransform(
+                                scaleProgress = maxOf(dragScaleProgress.value, motionState.pressProgress),
+                                velocityItemsPerSecond = motionState.deformationVelocityItemsPerSecond
+                            )
                             scaleX = indicatorTransform.scaleX
                             scaleY = indicatorTransform.scaleY
                         }
@@ -496,18 +498,20 @@ internal fun SteamLiquidGlassDock(
 private fun RowScope.SteamLiquidGlassDockItemVisual(
     tab: SteamDockTab,
     itemWidth: Dp,
-    selectedAlpha: Float,
-    contentColor: Color,
-    scale: Float
+    selectedAlpha: () -> Float,
+    contentColor: () -> Color,
+    scale: () -> Float
 ) {
     val label = tab.liquidGlassLabel()
+    val tint = contentColor()
     Column(
         modifier = Modifier
             .width(itemWidth)
             .fillMaxHeight()
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                val itemScale = scale()
+                scaleX = itemScale
+                scaleY = itemScale
             },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
@@ -516,23 +520,23 @@ private fun RowScope.SteamLiquidGlassDockItemVisual(
             Icon(
                 imageVector = tab.liquidGlassIcon(selected = false),
                 contentDescription = null,
-                tint = contentColor,
+                tint = tint,
                 modifier = Modifier
                     .size(24.dp)
-                    .alpha(1f - selectedAlpha.coerceIn(0f, 1f))
+                    .graphicsLayer { alpha = 1f - selectedAlpha().coerceIn(0f, 1f) }
             )
             Icon(
                 imageVector = tab.liquidGlassIcon(selected = true),
                 contentDescription = null,
-                tint = contentColor,
+                tint = tint,
                 modifier = Modifier
                     .size(24.dp)
-                    .alpha(selectedAlpha.coerceIn(0f, 1f))
+                    .graphicsLayer { alpha = selectedAlpha().coerceIn(0f, 1f) }
             )
         }
         Text(
             text = label,
-            color = contentColor,
+            color = tint,
             fontSize = MaterialTheme.typography.labelSmall.fontSize,
             lineHeight = MaterialTheme.typography.labelMedium.lineHeight,
             fontWeight = FontWeight.Medium,
@@ -605,7 +609,7 @@ private fun resolveIndicatorTransform(
 private fun rememberIndicatorDragScaleProgress(
     isDragging: Boolean,
     reduceAnimations: Boolean
-): Float {
+): State<Float> {
     val progress = remember { Animatable(0f) }
     LaunchedEffect(isDragging, reduceAnimations) {
         progress.animateTo(
@@ -622,7 +626,7 @@ private fun rememberIndicatorDragScaleProgress(
             )
         )
     }
-    return progress.value
+    return progress.asState()
 }
 
 @Composable

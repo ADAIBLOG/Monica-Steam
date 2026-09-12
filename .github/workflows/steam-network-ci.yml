@@ -7,13 +7,151 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
+concurrency:
+  group: steam-network-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
+  rust-core-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust 1.75 core MSRV
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.75.0
+
+      - name: Test Rust Steam core
+        run: cargo test --manifest-path rust/monica-steam-core/Cargo.toml --all-targets --locked
+
+  rust-workspace-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust 1.77 workspace MSRV
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.77.0
+
+      - name: Test Rust workspace
+        run: cargo test --manifest-path rust/Cargo.toml --workspace --all-targets --locked
+
+  rust-android-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [Debug, Release]
+    env:
+      ANDROID_NDK_VERSION: 27.2.12479018
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          sdkmanager "ndk;$ANDROID_NDK_VERSION" >/dev/null
+          NDK_PATH="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$NDK_PATH" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build Rust JNI libraries
+        shell: bash
+        run: |
+          chmod +x scripts/build-rust-android.sh
+          scripts/build-rust-android.sh
+
+      - name: Verify Android ABI outputs
+        shell: bash
+        run: |
+          test -s app/src/main/jniLibs/arm64-v8a/libmonica_steam_android.so
+          test -s app/src/main/jniLibs/armeabi-v7a/libmonica_steam_android.so
+          file app/src/main/jniLibs/arm64-v8a/libmonica_steam_android.so
+          file app/src/main/jniLibs/armeabi-v7a/libmonica_steam_android.so
+
+      - name: Assemble APKs with Rust core
+        shell: bash
+        run: |
+          chmod +x gradlew
+          free -h
+          # A separate Kotlin daemon plus both R8 variants can exceed runner RAM.
+          # Build one variant per runner in one bounded JVM.
+          ./gradlew :app:assemble${{ matrix.variant }} --stacktrace --no-daemon --max-workers=1 \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            '-Dorg.gradle.jvmargs=-Xmx10g -Dfile.encoding=UTF-8'
+
+      - name: Verify Rust libraries inside APKs
+        shell: bash
+        run: |
+          mapfile -t apks < <(find app/build/outputs/apk -type f -iname '*.apk' -print)
+          test "${#apks[@]}" -gt 0
+          : > apk-contents.txt
+          for apk in "${apks[@]}"; do
+            echo "Inspecting $apk"
+            unzip -l "$apk" | tee -a apk-contents.txt
+          done
+          grep -q 'lib/arm64-v8a/libmonica_steam_android.so' apk-contents.txt
+          grep -q 'lib/armeabi-v7a/libmonica_steam_android.so' apk-contents.txt
+
+      - name: Write APK checksums
+        shell: bash
+        run: |
+          mapfile -t apks < <(find app/build/outputs/apk -type f -iname '*.apk' -print | sort)
+          test "${#apks[@]}" -gt 0
+          sha256sum "${apks[@]}" > apk-sha256.txt
+          cat apk-sha256.txt
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: monica-steam-rust-${{ matrix.variant }}-${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/**/*.APK
+            app/build/outputs/apk/**/*.apk
+            apk-sha256.txt
+            apk-contents.txt
+          if-no-files-found: error
+          retention-days: 7
+
   network-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        native: [false, true]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,9 +168,48 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
-      - name: Run Steam network tests
+      - name: Set up host Rust toolchain
+        if: matrix.native
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build host JNI library
+        if: matrix.native
+        run: cargo build --manifest-path rust/Cargo.toml --locked -p monica-steam-android
+
+      - name: Run Steam protocol and network tests
         run: >-
           ./gradlew testDebugUnitTest --stacktrace
+          ${{ matrix.native && '-PsteamNativeTestLibraryDir=../rust/target/debug' || '' }}
+          --tests 'takagi.ru.monica.steam.core.SteamNativeIntegrationTest'
+          --tests 'takagi.ru.monica.steam.SteamMaFileParserTest'
+          --tests 'takagi.ru.monica.steam.SteamCoreAlgorithmsTest'
+          --tests 'takagi.ru.monica.steam.SteamLoginImportServiceGuardTest'
+          --tests 'takagi.ru.monica.steam.navigation.SteamLiquidGlassDockGuardTest'
+          --tests 'takagi.ru.monica.steam.network.SteamProtoTest'
+          --tests 'takagi.ru.monica.steam.network.RustAuthSessionParserTest'
+          --tests 'takagi.ru.monica.steam.network.RustAuthorizedDeviceParserTest'
+          --tests 'takagi.ru.monica.steam.network.SteamAuthorizedDeviceServiceTest'
+          --tests 'takagi.ru.monica.steam.network.cm.SteamCmProtocolTest'
+          --tests 'takagi.ru.monica.steam.network.cm.SteamCmPersistentConnectionTest'
+          --tests 'takagi.ru.monica.steam.friends.chat.data.SteamFriendChatServiceTest'
+          --tests 'takagi.ru.monica.steam.friends.chat.data.SteamFriendChatRealtimeParserTest'
+          --tests 'takagi.ru.monica.steam.friends.nickname.data.RustFriendNicknameParserTest'
+          --tests 'takagi.ru.monica.steam.friends.groupchat.data.RustGroupChatHistoryParserTest'
+          --tests 'takagi.ru.monica.steam.friends.groupchat.data.RustGroupChatSummariesParserTest'
+          --tests 'takagi.ru.monica.steam.friends.groupchat.data.SteamGroupChatParserTest'
+          --tests 'takagi.ru.monica.steam.trade.RustTradeOfferParserTest'
+          --tests 'takagi.ru.monica.steam.trade.SteamTradeOfferServiceTest'
+          --tests 'takagi.ru.monica.steam.trade.SteamTradeOfferIntegrationGuardTest'
+          --tests 'takagi.ru.monica.steam.store.SteamWishlistProtocolTest'
+          --tests 'takagi.ru.monica.steam.store.data.RustSteamWishlistParserTest'
+          --tests 'takagi.ru.monica.steam.library.RustOwnedGamesParserTest'
+          --tests 'takagi.ru.monica.steam.library.RustAchievementProgressParserTest'
+          --tests 'takagi.ru.monica.steam.library.RustStoreItemsParserTest'
+          --tests 'takagi.ru.monica.steam.library.RustAchievementDetailsParserTest'
+          --tests 'takagi.ru.monica.steam.library.family.RustFamilySharedAppsParserTest'
+          --tests 'takagi.ru.monica.steam.library.SteamFamilyLibraryServiceTest'
+          --tests 'takagi.ru.monica.steam.library.SteamLibraryModelsTest'
+          --tests 'takagi.ru.monica.steam.navigation.liquidglass.motion.LiquidGlassDockMotionTest'
           --tests 'takagi.ru.monica.steam.network.optimization.SteamCustomHostsDnsTest'
           --tests 'takagi.ru.monica.steam.network.optimization.SteamDynamicDnsTest'
           --tests 'takagi.ru.monica.steam.network.optimization.diagnostics.SteamResolverBenchmarkTest'

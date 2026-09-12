@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "monica-steam-core",
+    "monica-steam-android",
+]
+resolver = "2"

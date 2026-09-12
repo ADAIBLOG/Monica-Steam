@@ -326,6 +326,11 @@ tasks.register('verifyReleaseSigningConfiguration') {
 // Their tests remain in the copied source tree for reference, but the default
 // test task covers only code that can be reached from MonicaSteamActivity.
 tasks.withType(Test).configureEach {
+    // CI runs the same protocol tests with and without the real host JNI library.
+    if (project.hasProperty('steamNativeTestLibraryDir')) {
+        systemProperty 'java.library.path', file(project.property('steamNativeTestLibraryDir')).absolutePath
+        systemProperty 'steam.native.required', 'true'
+    }
     exclude '**/attachments/**'
     exclude '**/autofill/**'
     exclude '**/autofill_ng/**'

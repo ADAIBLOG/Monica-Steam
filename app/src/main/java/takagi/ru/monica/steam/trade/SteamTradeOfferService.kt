@@ -40,7 +40,7 @@ class SteamTradeOfferService(
             accessToken = accessToken,
             useGet = true
         )
-        return parseProtoSnapshot(response)
+        return RustTradeOfferParser.parseOrNull(response) ?: parseProtoSnapshot(response)
     }
 
     fun respond(

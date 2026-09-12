@@ -622,6 +622,7 @@ class SteamGameLibraryService internal constructor(
         }
 
         fun parseOwnedGames(response: ByteArray): List<SteamGame> {
+            RustOwnedGamesParser.parseOrNull(response)?.let { return it }
             val fields = SteamProtoReader(response).parseAll()
             val declaredGameCount = fields
                 .firstOrNull { it.number == 1 && it.wireType == 0 }
@@ -653,6 +654,7 @@ class SteamGameLibraryService internal constructor(
         internal fun parseAchievementProgress(
             response: ByteArray
         ): Map<Int, SteamGameAchievementProgress> {
+            RustAchievementProgressParser.parseOrNull(response)?.let { return it }
             return SteamProtoReader(response).parseAll()
                 .asSequence()
                 .filter { it.number == 1 && it.bytes != null }
@@ -714,6 +716,7 @@ class SteamGameLibraryService internal constructor(
             response: ByteArray,
             currency: String = "CNY"
         ): Map<Int, SteamStoreMetadata> {
+            RustStoreItemsParser.parseOrNull(response, currency)?.let { return it }
             val fetchedAt = System.currentTimeMillis()
             return SteamProtoReader(response).parseAll()
                 .asSequence()
@@ -782,6 +785,7 @@ class SteamGameLibraryService internal constructor(
             definitionsResponse: ByteArray,
             userResponse: ByteArray
         ): SteamGameAchievements {
+            RustAchievementDetailsParser.parseGameAchievementsOrNull(accountId, appId, gameName, definitionsResponse, userResponse)?.let { return it }
             val statuses = SteamProtoReader(userResponse).parseAll()
                 .asSequence()
                 .filter { it.number == 1 && it.bytes != null }
