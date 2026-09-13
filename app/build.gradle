@@ -73,7 +73,7 @@ android {
 
     def previewVersionSuffix = project.findProperty('previewVersionSuffix')?.toString()?.trim()
     def appVersionCode = 18 // Intentionally fixed; releases advance through versionName.
-    def baseVersionName = previewVersionSuffix ? "1.0.307-${previewVersionSuffix}" : "1.0.307"
+    def baseVersionName = previewVersionSuffix ? "1.0.308-${previewVersionSuffix}" : "1.0.308"
     def normalizeTwoDigits = { raw ->
         def value = raw?.toString()?.trim()?.replaceAll('\\D', '')
         if (!value) {
@@ -325,6 +325,17 @@ tasks.register('verifyReleaseSigningConfiguration') {
 // The standalone Steam product does not ship these Monica feature surfaces.
 // Their tests remain in the copied source tree for reference, but the default
 // test task covers only code that can be reached from MonicaSteamActivity.
+tasks.register('benchmarkWorkshopSubscriptions', JavaExec) {
+    group = 'verification'
+    description = 'Compare Kotlin and release host JNI Workshop subscription sorting.'
+    dependsOn 'compileDebugUnitTestKotlin', 'compileDebugUnitTestJavaWithJavac', 'processDebugUnitTestJavaRes'
+    classpath = tasks.named('testDebugUnitTest').get().classpath
+    mainClass = 'takagi.ru.monica.steam.workshop.WorkshopSubscriptionBenchmark'
+    if (project.hasProperty('steamNativeTestLibraryDir')) {
+        systemProperty 'java.library.path', file(project.property('steamNativeTestLibraryDir')).absolutePath
+    }
+}
+
 tasks.withType(Test).configureEach {
     // CI runs the same protocol tests with and without the real host JNI library.
     if (project.hasProperty('steamNativeTestLibraryDir')) {

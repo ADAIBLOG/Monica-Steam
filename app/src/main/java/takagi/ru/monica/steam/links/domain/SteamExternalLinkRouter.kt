@@ -2,11 +2,13 @@ package takagi.ru.monica.steam.links.domain
 
 import java.net.URI
 import java.util.Locale
+import takagi.ru.monica.steam.workshop.WorkshopShareCode
 
 internal sealed interface SteamExternalLinkTarget {
     data class StoreApp(val appId: Int) : SteamExternalLinkTarget
     data class CommunityProfile(val steamId: String) : SteamExternalLinkTarget
     data class Web(val url: String) : SteamExternalLinkTarget
+    data class WorkshopSubscriptions(val appId: Int, val code: String) : SteamExternalLinkTarget
 }
 
 internal object SteamExternalLinkRouter {
@@ -17,7 +19,13 @@ internal object SteamExternalLinkRouter {
     )
 
     fun route(rawUrl: String?): SteamExternalLinkTarget? {
+        if (rawUrl.orEmpty().length > WorkshopShareCode.MAX_TEXT_LENGTH) return null
         val normalizedInput = unwrapSteamOpenUrl(rawUrl) ?: rawUrl.orEmpty().trim()
+        if (normalizedInput.startsWith(WorkshopShareCode.LINK_PREFIX)) {
+            if (!normalizedInput.removePrefix(WorkshopShareCode.LINK_PREFIX).matches(Regex("[A-Za-z0-9_-]+"))) return null
+            val share = runCatching { WorkshopShareCode.decode(normalizedInput) }.getOrNull() ?: return null
+            return SteamExternalLinkTarget.WorkshopSubscriptions(share.appId, WorkshopShareCode.encode(share))
+        }
         val uri = runCatching { URI(normalizedInput) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https")) return null
         val host = uri.host?.lowercase(Locale.ROOT) ?: return null

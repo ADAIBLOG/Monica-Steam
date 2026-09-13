@@ -78,6 +78,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import takagi.ru.monica.steam.workshop.SteamWorkshopEntry
+import takagi.ru.monica.steam.workshop.SteamWorkshopScreen
 import takagi.ru.monica.R
 import takagi.ru.monica.ui.LocalReduceAnimations
 import takagi.ru.monica.data.AppSettings
@@ -136,6 +138,7 @@ private sealed interface SteamLibraryDestination {
     data class Profile(val steamId: String) : SteamLibraryDestination
     data class Game(val appId: Int) : SteamLibraryDestination
     data class GameData(val appId: Int) : SteamLibraryDestination
+    data class Workshop(val appId: Int) : SteamLibraryDestination
     data class Screenshots(val appId: Int) : SteamLibraryDestination
 }
 
@@ -168,11 +171,13 @@ fun SteamLibraryScreen(
     var showSteamProfile by rememberSaveable { mutableStateOf(false) }
     var showRegionalPriceSheet by rememberSaveable { mutableStateOf(false) }
     var gameDataAppId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var workshopAppId by rememberSaveable { mutableStateOf<Int?>(null) }
     var screenshotsAppId by rememberSaveable { mutableStateOf<Int?>(null) }
     val selectedAccount = state.accounts.firstOrNull { it.id == state.selectedAccountId }
         ?: state.accounts.firstOrNull()
     val accountDetailsVisible = showAccountDetails && selectedAccount != null
     val libraryDestination = when {
+        workshopAppId != null && selectedGame != null -> SteamLibraryDestination.Workshop(requireNotNull(workshopAppId))
         screenshotsAppId != null && selectedGame != null ->
             SteamLibraryDestination.Screenshots(requireNotNull(screenshotsAppId))
         gameDataAppId != null && selectedGame != null ->
@@ -184,10 +189,11 @@ fun SteamLibraryScreen(
         else -> SteamLibraryDestination.Overview
     }
     BackHandler(
-        enabled = screenshotsAppId != null || gameDataAppId != null || selectedGame != null ||
+        enabled = workshopAppId != null || screenshotsAppId != null || gameDataAppId != null || selectedGame != null ||
             showSteamProfile || accountDetailsVisible
     ) {
         when {
+            workshopAppId != null -> workshopAppId = null
             screenshotsAppId != null -> screenshotsAppId = null
             gameDataAppId != null -> gameDataAppId = null
             selectedGame != null -> viewModel.closeGame()
@@ -292,6 +298,14 @@ fun SteamLibraryScreen(
             }
         ) { padding ->
             when (destination) {
+                is SteamLibraryDestination.Workshop -> SteamWorkshopScreen(
+                    appId = destination.appId,
+                    gameName = selectedGame?.name.orEmpty(),
+                    account = selectedAccount,
+                    source = state.storageSource,
+                    onBack = { workshopAppId = null },
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                )
                 is SteamLibraryDestination.Game -> {
                     val game = selectedGame
                         ?: state.snapshot?.games?.firstOrNull { it.appId == destination.appId }
@@ -322,6 +336,7 @@ fun SteamLibraryScreen(
                             onOpenStoreApp = onOpenStoreApp,
                             onOpenGameData = { gameDataAppId = game.appId },
                             onOpenScreenshots = { screenshotsAppId = game.appId },
+                            onOpenWorkshop = { workshopAppId = game.appId },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(padding)
@@ -1584,6 +1599,7 @@ private fun SteamGameDetail(
     onOpenStoreApp: (Int) -> Unit,
     onOpenGameData: () -> Unit,
     onOpenScreenshots: () -> Unit,
+    onOpenWorkshop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val dockContentClearance = LocalSteamDockContentClearance.current
@@ -1629,6 +1645,9 @@ private fun SteamGameDetail(
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.steam_library_open_store))
             }
+        }
+        item {
+            SteamWorkshopEntry(game.appId, onOpenWorkshop, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         }
         if (gameDataPage != null || screenshotsPage != null) {
             item {

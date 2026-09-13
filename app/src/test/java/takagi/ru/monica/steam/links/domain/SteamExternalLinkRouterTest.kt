@@ -5,8 +5,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import takagi.ru.monica.steam.workshop.WorkshopShare
+import takagi.ru.monica.steam.workshop.WorkshopShareCode
 
 class SteamExternalLinkRouterTest {
+    @Test fun monicaWorkshopLinkRoutesOnlyToAReviewableGameAndItemList() {
+        val code = WorkshopShareCode.encode(WorkshopShare(570, listOf("1", "2")))
+        val link = WorkshopShareCode.link(code)
+        assertEquals(SteamExternalLinkTarget.WorkshopSubscriptions(570, code), SteamExternalLinkRouter.route(link))
+        for (invalid in listOf(link + "?subscribe=true", link.replace("workshop/", "workshop.evil/"),
+            link.replace("/v1/", "/v2/"), "monica://workshop/v1/broken")) {
+            assertNull(SteamExternalLinkRouter.route(invalid))
+        }
+    }
+
     @Test
     fun storeAppLinkOpensNativeDetail() {
         assertEquals(

@@ -38,7 +38,8 @@ internal fun SteamStoreBrowseMenu(
     onOpenAdvancedFilters: () -> Unit,
     onOpenFreebies: () -> Unit,
     onOpenPointsShop: () -> Unit,
-    onOpenProductActivation: () -> Unit = {}
+    onOpenProductActivation: () -> Unit = {},
+    onOpenWorkshopImport: () -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -131,6 +132,10 @@ internal fun SteamStoreBrowseMenu(
                     expanded = false
                     onOpenProductActivation()
                 }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.workshop_import_share)) },
+                onClick = { expanded = false; onOpenWorkshopImport() }
             )
         }
     }
