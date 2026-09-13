@@ -93,6 +93,8 @@ import takagi.ru.monica.steam.friends.chat.ui.SteamChatScreen
 import takagi.ru.monica.steam.library.ui.SteamLibraryScreen
 import takagi.ru.monica.steam.links.domain.SteamExternalLinkRouter
 import takagi.ru.monica.steam.links.domain.SteamExternalLinkTarget
+import takagi.ru.monica.steam.workshop.SteamWorkshopBulkNotifications
+import takagi.ru.monica.steam.workshop.SteamWorkshopTaskProgressHost
 import takagi.ru.monica.steam.token.ui.SteamScreen
 import takagi.ru.monica.steam.foundation.ui.ProvideSteamContentDensity
 import takagi.ru.monica.steam.foundation.ui.setSteamUiScaledContent
@@ -162,6 +164,7 @@ class MonicaSteamActivity : BaseMonicaActivity() {
     private val pendingChatNotificationRequest =
         MutableStateFlow<SteamChatNotificationTarget?>(null)
     private val pendingExternalSteamLink = MutableStateFlow<SteamExternalLinkTarget?>(null)
+    private val pendingWorkshopTask = MutableStateFlow<String?>(null)
 
     override fun shouldEnforceSharedSessionLock(): Boolean = false
 
@@ -169,6 +172,7 @@ class MonicaSteamActivity : BaseMonicaActivity() {
         super.onCreate(savedInstanceState)
         consumeChatNotificationIntent(intent)
         consumeExternalSteamLinkIntent(intent)
+        consumeWorkshopTaskIntent(intent)
 
         lifecycleScope.launch {
             SteamAlerts.sync(this@MonicaSteamActivity)
@@ -230,6 +234,8 @@ class MonicaSteamActivity : BaseMonicaActivity() {
                 }
                 val chatNotificationRequest by pendingChatNotificationRequest.collectAsState()
                 val externalSteamLink by pendingExternalSteamLink.collectAsState()
+                val workshopTaskKey by pendingWorkshopTask.collectAsState()
+                SteamWorkshopTaskProgressHost(workshopTaskKey) { pendingWorkshopTask.value = null }
                 val mdbxRepository: MdbxRepository = remember(passwordDatabase, securityManager) {
                     MdbxRepositoryFactory.create(
                         context = this@MonicaSteamActivity.applicationContext,
@@ -282,6 +288,7 @@ class MonicaSteamActivity : BaseMonicaActivity() {
                 var pendingQrAccountId by rememberSaveable { mutableStateOf<Long?>(null) }
                 var pendingStoreAppId by rememberSaveable { mutableStateOf<Int?>(null) }
                 var pendingStoreWebUrl by rememberSaveable { mutableStateOf<String?>(null) }
+                var pendingWorkshopShare by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingCommunitySteamId by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingChatPartnerSteamId by rememberSaveable { mutableStateOf<String?>(null) }
                 var pendingChatGameShare by rememberSaveable {
@@ -354,6 +361,12 @@ class MonicaSteamActivity : BaseMonicaActivity() {
 
                 LaunchedEffect(externalSteamLink) {
                     when (val target = externalSteamLink ?: return@LaunchedEffect) {
+                        is SteamExternalLinkTarget.WorkshopSubscriptions -> {
+                            pendingStoreAppId = null
+                            pendingStoreWebUrl = null
+                            pendingWorkshopShare = target.code
+                            currentPage = MonicaSteamPage.STORE
+                        }
                         is SteamExternalLinkTarget.StoreApp -> {
                             pendingStoreWebUrl = null
                             pendingStoreAppId = target.appId
@@ -625,6 +638,8 @@ class MonicaSteamActivity : BaseMonicaActivity() {
                                 onInitialAppIdConsumed = { pendingStoreAppId = null },
                                 initialWebUrl = pendingStoreWebUrl,
                                 onInitialWebUrlConsumed = { pendingStoreWebUrl = null },
+                                initialWorkshopShare = pendingWorkshopShare,
+                                onInitialWorkshopShareConsumed = { pendingWorkshopShare = null },
                                 onPlatformViewVisibilityChanged = onPlatformViewVisibilityChanged,
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -884,12 +899,17 @@ class MonicaSteamActivity : BaseMonicaActivity() {
         setIntent(intent)
         consumeChatNotificationIntent(intent)
         consumeExternalSteamLinkIntent(intent)
+        consumeWorkshopTaskIntent(intent)
     }
 
     private fun consumeChatNotificationIntent(intent: Intent?) {
         SteamChatBackground.consumeNotification(intent)?.let { request ->
             pendingChatNotificationRequest.value = request
         }
+    }
+
+    private fun consumeWorkshopTaskIntent(intent: Intent?) {
+        SteamWorkshopBulkNotifications.consumeOpenIntent(intent)?.let { pendingWorkshopTask.value = it }
     }
 
     private fun consumeExternalSteamLinkIntent(intent: Intent?) {

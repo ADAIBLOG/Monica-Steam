@@ -7,3 +7,4 @@ mod group_chat_bridge;
 mod library_bridge;
 mod trade_bridge;
 mod wishlist_bridge;
+mod workshop_bridge;

@@ -178,6 +178,9 @@ internal class SteamCmPersistentConnection(
         } catch (error: ExecutionException) {
             pending.remove(request)
             val cause = error.cause
+            // Preserve Steam's status so callers can refresh expired sessions and
+            // distinguish permission/rate-limit failures from transport failures.
+            if (cause is SteamApiException) throw cause
             if (cause is RuntimeException) throw cause
             throw IOException("Steam CM operation failed", cause)
         }
@@ -219,6 +222,7 @@ internal class SteamCmPersistentConnection(
             throw IOException("Interrupted while logging on to Steam CM", error)
         } catch (error: ExecutionException) {
             val cause = error.cause
+            if (cause is SteamApiException) throw cause
             if (cause is RuntimeException) throw cause
             throw IOException("Steam CM logon failed", cause)
         } finally {

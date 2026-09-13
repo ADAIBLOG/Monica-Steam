@@ -18,6 +18,13 @@ internal object RustSteamCoreNative {
     val isAvailable: Boolean
         get() = loaded
 
+    fun orderWorkshopSubscriptionsOrNull(scores: LongArray, ids: LongArray): IntArray? {
+        if (!loaded || scores.size != ids.size) return null
+        return runCatching { nativeOrderWorkshopSubscriptions(scores, ids) }.getOrNull()
+    }
+
+    private external fun nativeOrderWorkshopSubscriptions(scores: LongArray, ids: LongArray): IntArray?
+
     fun encodeCmMessageOrNull(
         eMsg: Int,
         steamId: Long,

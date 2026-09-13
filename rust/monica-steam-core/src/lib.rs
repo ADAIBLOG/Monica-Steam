@@ -14,6 +14,7 @@ pub mod proto;
 pub mod trade_offer;
 pub mod two_factor;
 pub mod wishlist;
+pub mod workshop;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use hmac::{Hmac, Mac};

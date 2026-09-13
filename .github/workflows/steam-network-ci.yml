@@ -181,6 +181,7 @@ jobs:
           ./gradlew testDebugUnitTest --stacktrace
           ${{ matrix.native && '-PsteamNativeTestLibraryDir=../rust/target/debug' || '' }}
           --tests 'takagi.ru.monica.steam.core.SteamNativeIntegrationTest'
+          --tests 'takagi.ru.monica.steam.workshop.*'
           --tests 'takagi.ru.monica.steam.SteamMaFileParserTest'
           --tests 'takagi.ru.monica.steam.SteamCoreAlgorithmsTest'
           --tests 'takagi.ru.monica.steam.SteamLoginImportServiceGuardTest'

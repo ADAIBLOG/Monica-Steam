@@ -49,6 +49,7 @@ fun SelectionActionBar(
     onDelete: (() -> Unit)? = null,
     showSelectionControls: Boolean = true,
     actions: List<SelectionActionBarAction> = emptyList(),
+    selectAllContentDescription: String? = null,
     exitIcon: ImageVector = Icons.Default.Close,
     exitContentDescription: String? = null,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -86,7 +87,8 @@ fun SelectionActionBar(
 
                 ActionIcon(
                     icon = Icons.Outlined.CheckCircle,
-                    contentDescription = stringResource(id = R.string.select_all),
+                    contentDescription = selectAllContentDescription
+                        ?: stringResource(id = R.string.select_all),
                     onClick = onSelectAll
                 )
             }

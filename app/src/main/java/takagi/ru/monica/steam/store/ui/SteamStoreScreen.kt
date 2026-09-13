@@ -111,6 +111,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import takagi.ru.monica.steam.workshop.SteamWorkshopEntry
+import takagi.ru.monica.steam.workshop.SteamWorkshopScreen
+import takagi.ru.monica.steam.workshop.WorkshopImportCodeDialog
+import takagi.ru.monica.steam.workshop.WorkshopShareCode
 import takagi.ru.monica.R
 import takagi.ru.monica.ui.LocalReduceAnimations
 import takagi.ru.monica.steam.foundation.ui.SteamAccountSwitcherSheet
@@ -175,6 +179,7 @@ private sealed interface SteamStoreDestination {
     data object Cart : SteamStoreDestination
     data object PointsShop : SteamStoreDestination
     data object Freebies : SteamStoreDestination
+    data class Workshop(val appId: Int) : SteamStoreDestination
     data class Detail(val appId: Int) : SteamStoreDestination
     data class Web(val url: String) : SteamStoreDestination
 }
@@ -192,6 +197,8 @@ fun SteamStoreScreen(
     onInitialAppIdConsumed: () -> Unit = {},
     initialWebUrl: String? = null,
     onInitialWebUrlConsumed: () -> Unit = {},
+    initialWorkshopShare: String? = null,
+    onInitialWorkshopShareConsumed: () -> Unit = {},
     onPlatformViewVisibilityChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: SteamStoreViewModel = viewModel(factory = SteamStoreViewModel.factory(LocalContext.current))
@@ -242,6 +249,9 @@ fun SteamStoreScreen(
     var showAccounts by remember { mutableStateOf(false) }
     var searchExpanded by remember { mutableStateOf(false) }
     var showAdvancedFilters by rememberSaveable { mutableStateOf(false) }
+    var workshopAppId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var workshopShareCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var showWorkshopImport by rememberSaveable { mutableStateOf(false) }
     var freebiesOpen by rememberSaveable { mutableStateOf(false) }
     var pendingGameShare by remember { mutableStateOf<SteamStoreGameShare?>(null) }
     var lastDetail by remember { mutableStateOf<SteamStoreDetail?>(null) }
@@ -260,6 +270,15 @@ fun SteamStoreScreen(
             onInitialWebUrlConsumed()
         }
     }
+    LaunchedEffect(initialWorkshopShare) {
+        initialWorkshopShare?.let { code ->
+            runCatching { WorkshopShareCode.decode(code) }.getOrNull()?.let { share ->
+                workshopShareCode = WorkshopShareCode.encode(share)
+                workshopAppId = share.appId
+            }
+            onInitialWorkshopShareConsumed()
+        }
+    }
     LaunchedEffect(state.selectedAccountId, state.storageSource) {
         viewModel.loadWishlist()
         viewModel.loadStoreFilterMetadata()
@@ -271,6 +290,7 @@ fun SteamStoreScreen(
         steamStoreCheckoutAutomationFactory(state.checkoutLines)
     }
     val storeDestination = when {
+        workshopAppId != null -> SteamStoreDestination.Workshop(requireNotNull(workshopAppId))
         webUrl != null -> SteamStoreDestination.Web(webUrl)
         detailAppId != null -> SteamStoreDestination.Detail(detailAppId)
         state.cartOpen -> SteamStoreDestination.Cart
@@ -281,11 +301,12 @@ fun SteamStoreScreen(
 
     BackHandler(
         enabled = state.webUrl == null && (
-            state.regionalPriceSheetOpen || state.cartOpen || state.detailAppId != null ||
+            workshopAppId != null || state.regionalPriceSheetOpen || state.cartOpen || state.detailAppId != null ||
                 state.pointsShopOpen || freebiesOpen
             )
     ) {
         when {
+            workshopAppId != null -> workshopAppId = null
             state.regionalPriceSheetOpen -> viewModel.closeRegionalPrices()
             state.detailAppId != null -> viewModel.closeDetail()
             state.cartOpen -> viewModel.closeCart()
@@ -312,6 +333,15 @@ fun SteamStoreScreen(
         label = "SteamStoreNavigation"
     ) { destination ->
         when (destination) {
+            is SteamStoreDestination.Workshop -> SteamWorkshopScreen(
+                appId = destination.appId,
+                gameName = state.detail?.takeIf { it.appId == destination.appId }?.name.orEmpty(),
+                account = selectedStoreAccount,
+                source = state.storageSource,
+                onBack = { workshopAppId = null; workshopShareCode = null },
+                initialShareCode = workshopShareCode,
+                onInitialShareConsumed = { workshopShareCode = null }
+            )
             is SteamStoreDestination.Web -> SteamWebBrowserScreen(
                 url = destination.url,
                 title = if (destination.url == SteamStoreProductActivation.REGISTER_KEY_URL) {
@@ -393,6 +423,7 @@ fun SteamStoreScreen(
                     }
                     SteamStoreDetailContent(
                         detail = detail,
+                        onOpenWorkshop = { workshopAppId = detail.appId },
                         hints = detailHints,
                         showTags = hintSettings.storeTagsEnabled,
                         filterableTags = filterableDetailTags,
@@ -513,6 +544,7 @@ fun SteamStoreScreen(
                                 },
                                 onOpenFreebies = { freebiesOpen = true },
                                 onOpenPointsShop = viewModel::openPointsShop,
+                                onOpenWorkshopImport = { showWorkshopImport = true },
                                 onOpenProductActivation = {
                                     viewModel.openAuthenticatedStoreWeb(
                                         SteamStoreProductActivation.REGISTER_KEY_URL
@@ -703,6 +735,12 @@ fun SteamStoreScreen(
                 }
             }
         }
+    }
+
+    if (showWorkshopImport) WorkshopImportCodeDialog({ showWorkshopImport = false }) { share ->
+        showWorkshopImport = false
+        workshopShareCode = WorkshopShareCode.encode(share)
+        workshopAppId = share.appId
     }
 
     if (showAccounts) {
@@ -1148,6 +1186,7 @@ private fun SteamStoreDetailContent(
     freeLicenseClaiming: Boolean,
     freeLicenseClaimResult: SteamFreebieClaimResult?,
     onBack: () -> Unit,
+    onOpenWorkshop: () -> Unit,
     onOpenOfficial: () -> Unit,
     onOpenOfficialReviews: () -> Unit,
     onShare: () -> Unit,
@@ -1432,6 +1471,7 @@ private fun SteamStoreDetailContent(
                 Modifier.padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                SteamWorkshopEntry(detail.appId, onOpenWorkshop)
                 SteamStorePurchaseActions(
                     cartItem = cartItem,
                     inWishlist = inWishlist,
