@@ -28,7 +28,7 @@ enum class SteamDockTab {
     SETTINGS;
 
     companion object {
-        val DEFAULT_ORDER: List<SteamDockTab> = listOf(STORE, LIBRARY, CHAT)
+        val DEFAULT_ORDER: List<SteamDockTab> = listOf(STORE, LIBRARY, CHAT, SETTINGS)
         val LIQUID_GLASS_DEFAULT_ORDER: List<SteamDockTab> =
             listOf(STORE, LIBRARY, CHAT, TOKEN, SETTINGS)
         val FIXED_DEFAULT_ORDER: List<SteamDockTab> =
@@ -85,7 +85,7 @@ internal fun resolveStoredDockOrder(
     chatMigrationComplete: Boolean = false
 ): List<SteamDockTab> {
     val normalized = if (stored.distinct() == LEGACY_DEFAULT_DOCK_ORDER) {
-        listOf(SteamDockTab.STORE, SteamDockTab.LIBRARY)
+        SteamDockTab.DEFAULT_ORDER
     } else {
         SteamDockTab.sanitizeOrder(stored)
     }
