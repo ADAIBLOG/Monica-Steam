@@ -4383,7 +4383,7 @@
     <string name="steam_dock_style_m3e">M3E</string>
     <string name="steam_dock_style_liquid_glass">液态玻璃</string>
     <string name="steam_dock_style_fixed">固定底栏</string>
-    <string name="steam_dock_m3e_order_hint">调整商店、游戏库和聊天的顺序，也可关闭无需显示的项目；令牌保持独立按钮。</string>
+    <string name="steam_dock_m3e_order_hint">调整商店、游戏库、聊天和设置的顺序，也可关闭无需显示的项目；令牌保持独立按钮。</string>
     <string name="steam_dock_liquid_glass_order_hint">调整商店、游戏库、聊天、令牌和设置的顺序；液态玻璃样式固定启用全部五项。</string>
     <string name="steam_dock_fixed_order_hint">调整商店、游戏库、聊天、令牌和设置的顺序；固定 Material 3 底栏始终显示在屏幕底部。</string>
     <string name="steam_dock_drag_hint">长按把手调整顺序。</string>
