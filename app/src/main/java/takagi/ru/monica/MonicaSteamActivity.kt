@@ -961,9 +961,8 @@ private fun MonicaSteamPage.isDockPage(style: SteamDockStyle): Boolean = when (t
     MonicaSteamPage.STEAM,
     MonicaSteamPage.LIBRARY,
     MonicaSteamPage.STORE,
-    MonicaSteamPage.CHAT -> true
-    MonicaSteamPage.SETTINGS -> style == SteamDockStyle.LIQUID_GLASS ||
-        style == SteamDockStyle.FIXED
+    MonicaSteamPage.CHAT,
+    MonicaSteamPage.SETTINGS -> true
     MonicaSteamPage.SCANNER,
     MonicaSteamPage.HEALTH,
     MonicaSteamPage.COMMUNITY,
