@@ -25,7 +25,7 @@ class SteamFloatingDockGuardTest {
         assertTrue(activity.contains("selectedIndex = tabs.indexOf(selected)"))
         assertTrue(activity.contains("zIndex(1f)"))
         assertFalse(activity.contains("bottomBar ="))
-        assertTrue(settings.contains("DEFAULT_ORDER: List<SteamDockTab> = listOf(STORE, LIBRARY, CHAT)"))
+        assertTrue(settings.contains("DEFAULT_ORDER: List<SteamDockTab> = listOf(STORE, LIBRARY, CHAT, SETTINGS)"))
         assertTrue(dock.contains("filterNot { it == SteamDockTab.TOKEN }"))
         assertTrue(dock.contains("steamDockSwipe("))
         assertTrue(dock.contains("thresholdPx = with(LocalDensity.current)"))
