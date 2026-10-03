@@ -1,0 +1,157 @@
+name: Build Release APKs
+
+run-name: Build arm64 + 32-bit APKs (${{ github.ref_name }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Optional APK version name override, for example 1.0.308. Defaults to the build version.
+        required: false
+        type: string
+      preview_suffix:
+        description: Optional preview suffix appended to the version, for example preview.
+        required: false
+        type: string
+  push:
+    tags:
+      - 'V*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build arm64-v8a + armeabi-v7a
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ANDROID_NDK_VERSION: 27.2.12479018
+      SIGNING_KEYSTORE_BASE64: ${{ secrets.MONICA_STEAM_RELEASE_KEYSTORE_BASE64 }}
+      SIGNING_STORE_PASSWORD: ${{ secrets.MONICA_STEAM_RELEASE_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.MONICA_STEAM_RELEASE_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.MONICA_STEAM_RELEASE_KEY_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          sdkmanager "ndk;$ANDROID_NDK_VERSION" >/dev/null
+          NDK_PATH="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$NDK_PATH" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build Rust JNI libraries
+        shell: bash
+        run: |
+          chmod +x scripts/build-rust-android.sh
+          scripts/build-rust-android.sh
+
+      - name: Configure release signing
+        shell: bash
+        run: |
+          if [ -n "${SIGNING_KEYSTORE_BASE64}" ]; then
+            KEYSTORE_PATH="$RUNNER_TEMP/monica-steam-release.jks"
+            printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+            echo "MONICA_STEAM_RELEASE_STORE_FILE=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+            echo "MONICA_STEAM_RELEASE_STORE_PASSWORD=${SIGNING_STORE_PASSWORD}" >> "$GITHUB_ENV"
+            echo "MONICA_STEAM_RELEASE_KEY_ALIAS=${SIGNING_KEY_ALIAS}" >> "$GITHUB_ENV"
+            echo "MONICA_STEAM_RELEASE_KEY_PASSWORD=${SIGNING_KEY_PASSWORD}" >> "$GITHUB_ENV"
+            echo "Release signing configured from MONICA_STEAM_RELEASE_KEYSTORE_BASE64."
+          else
+            echo "No MONICA_STEAM_RELEASE_KEYSTORE_BASE64 secret; building an unsigned release."
+          fi
+
+      - name: Assemble release APKs
+        shell: bash
+        run: |
+          chmod +x gradlew
+          GRADLE_ARGS=()
+          if [ -n "${{ inputs.version_name }}" ]; then
+            GRADLE_ARGS+=("-PapkVersionName=${{ inputs.version_name }}")
+          fi
+          if [ -n "${{ inputs.preview_suffix }}" ]; then
+            GRADLE_ARGS+=("-PpreviewVersionSuffix=${{ inputs.preview_suffix }}")
+          fi
+          free -h
+          ./gradlew :app:assembleRelease --stacktrace --no-daemon --max-workers=1 \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            '-Dorg.gradle.jvmargs=-Xmx10g -Dfile.encoding=UTF-8' \
+            "${GRADLE_ARGS[@]}"
+
+      - name: Verify split ABIs and native libraries
+        shell: bash
+        run: |
+          mapfile -t apks < <(find app/build/outputs/apk -type f -iname '*.apk' -print | sort)
+          test "${#apks[@]}" -gt 0
+          : > apk-contents.txt
+          has_arm64=0
+          has_v7a=0
+          for apk in "${apks[@]}"; do
+            echo "Inspecting $apk"
+            unzip -l "$apk" | tee -a apk-contents.txt
+            if unzip -l "$apk" | grep -q 'lib/arm64-v8a/libmonica_steam_android.so'; then has_arm64=1; fi
+            if unzip -l "$apk" | grep -q 'lib/armeabi-v7a/libmonica_steam_android.so'; then has_v7a=1; fi
+          done
+          test "$has_arm64" -eq 1
+          test "$has_v7a" -eq 1
+
+      - name: Write APK checksums
+        shell: bash
+        run: |
+          mapfile -t apks < <(find app/build/outputs/apk -type f -iname '*.apk' -print | sort)
+          sha256sum "${apks[@]}" > apk-sha256.txt
+          cat apk-sha256.txt
+
+      - name: Collect APKs for upload
+        shell: bash
+        run: |
+          mkdir -p dist
+          find app/build/outputs/apk -type f -iname '*.apk' -print0 | while IFS= read -r -d '' f; do
+            cp "$f" "dist/$(basename "$f" | sed 's/\.[Aa][Pp][Kk]$/.apk/')"
+          done
+          ls -la dist
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: monica-steam-release-${{ github.run_number }}
+          path: |
+            dist/*.apk
+            apk-sha256.txt
+            apk-contents.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
